@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pour Combien ?</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0d0d; --surface: #161616; --border: #2a2a2a;
+    --accent: #f0e040; --accent2: #ff6b35; --text: #f0ede8; --muted: #666;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 2rem;
+  }
+  .noise {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity:.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 200px 200px;
+  }
+  .container { position:relative; z-index:1; width:100%; max-width:560px; }
+  .logo {
+    font-family:'Bebas Neue',sans-serif; font-size:clamp(3rem,12vw,6rem);
+    letter-spacing:0.04em; line-height:1; margin-bottom:0.2em;
+  }
+  .logo span { color:var(--accent); }
+  .subtitle {
+    color:var(--muted); font-size:0.9rem; margin-bottom:3rem;
+    font-weight:300; letter-spacing:0.05em; text-transform:uppercase;
+  }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:2rem; }
+  .field { margin-bottom:1.4rem; }
+  label {
+    display:block; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.1em;
+    color:var(--muted); margin-bottom:0.5rem; font-weight:500;
+  }
+  input, textarea {
+    width:100%; background:var(--bg); border:1px solid var(--border); border-radius:10px;
+    color:var(--text); font-family:'DM Sans',sans-serif; font-size:1rem;
+    padding:0.75rem 1rem; outline:none; transition:border-color 0.2s; resize:none;
+  }
+  input:focus, textarea:focus { border-color:var(--accent); }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+
+  .info-banner {
+    padding:0.9rem 1rem; margin-bottom:1.4rem;
+    font-size:0.95rem; color:var(--muted); line-height:1.5;
+  }
+  .info-banner strong { color:var(--accent2); }
+
+  button.main {
+    width:100%; background:var(--accent); color:#0d0d0d; border:none;
+    border-radius:10px; font-family:'Bebas Neue',sans-serif; font-size:1.3rem;
+    letter-spacing:0.08em; padding:0.9rem; cursor:pointer;
+    transition:transform 0.15s, opacity 0.15s; margin-top:0.5rem;
+  }
+  button.main:hover { opacity:0.9; transform:translateY(-1px); }
+  button.main:active { transform:translateY(0); }
+
+  .result-box {
+    display:none; margin-top:1.5rem; background:var(--bg);
+    border:1px solid var(--accent); border-radius:12px; padding:1.5rem;
+  }
+  .result-label { font-size:0.7rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--accent); margin-bottom:0.75rem; }
+  .link-text {
+    font-size:0.85rem; color:var(--text); word-break:break-all; background:var(--surface);
+    padding:0.6rem 0.9rem; border-radius:8px; cursor:pointer; transition:background 0.2s;
+    display:flex; align-items:center; justify-content:space-between; gap:0.5rem;
+  }
+  .link-text:hover { background:#222; }
+  .copied-msg { font-size:0.75rem; color:var(--accent); margin-top:0.5rem; height:1em; }
+  .go-link {
+    display:block; text-align:center; margin-top:1rem;
+    color:var(--accent2); text-decoration:none; font-weight:500; font-size:0.9rem;
+  }
+  .go-link:hover { text-decoration:underline; }
+</style>
+</head>
+<body>
+<div class="noise"></div>
+<div class="container">
+  <div class="logo">Pour<span>Combien</span><span style="color:var(--accent2)">?</span></div>
+  <p class="subtitle">Le jeu des paris entre amis</p>
+
+  <div class="card">
+    <div class="info-banner">
+      💡 <strong>Comment ça marche :</strong>
+      <ol>
+        <li>Défini le pari et les prénoms des joueurs,</li>
+        <li>Envoie le lien à l'autre personne, qui détermine le "Pour Combien",</li>
+        <li>Chacun choisi sa valeur,</li>
+        <li>Le pari doit être tenu si la même valeur est choisie 😈!</li>
+      </ol>
+    </div>
+
+    <div class="field">
+      <label>Le pari 🎯</label>
+      <textarea id="pari" rows="3" placeholder="Ex: Je fais 50 pompes d'un coup..."></textarea>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Ton prénom</label>
+        <input id="personne_a" type="text" placeholder="Lucas">
+      </div>
+      <div class="field">
+        <label>Prénom de l'autre personne</label>
+        <input id="personne_b" type="text" placeholder="Emma">
+      </div>
+    </div>
+    <button class="main" onclick="creer()">CRÉER LE PARI →</button>
+
+    <div class="result-box" id="result">
+      <p class="result-label">✅ Pari créé ! Envoie ce lien à <span id="dest-name"></span></p>
+      <div class="link-text" onclick="copier()">
+        <span id="lien"></span>
+        <span>📋</span>
+      </div>
+      <p class="copied-msg" id="copied"></p>
+      <a class="go-link" id="go-btn" href="#">Ouvrir le pari →</a>
+    </div>
+  </div>
+</div>
+
+<script>
+async function creer() {
+  const pari = document.getElementById('pari').value.trim();
+  const personne_a = document.getElementById('personne_a').value.trim();
+  const personne_b = document.getElementById('personne_b').value.trim();
+  if (!pari || !personne_a || !personne_b) { alert('Remplis tous les champs !'); return; }
+  const res = await fetch('/api/create', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({pari, personne_a, personne_b})
+  });
+  const data = await res.json();
+  const url = `${location.origin}/pari/${data.id}`;
+  document.getElementById('lien').textContent = url;
+  document.getElementById('dest-name').textContent = personne_b;
+  document.getElementById('go-btn').href = `/pari/${data.id}`;
+  document.getElementById('result').style.display = 'block';
+  document.getElementById('result').scrollIntoView({behavior:'smooth'});
+}
+function copier() {
+  navigator.clipboard.writeText(document.getElementById('lien').textContent);
+  const el = document.getElementById('copied');
+  el.textContent = '✓ Lien copié !';
+  setTimeout(() => el.textContent = '', 2000);
+}
+</script>
+</body>
+</html>
