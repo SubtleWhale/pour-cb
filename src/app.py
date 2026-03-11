@@ -1,6 +1,5 @@
 from pathlib import Path
-
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, make_response
 import json, os, uuid
 from datetime import datetime
 
@@ -16,48 +15,59 @@ def get_ip():
         return request.headers["X-Forwarded-For"].split(",")[0].strip()
     return request.remote_addr
 
+def get_or_set_uid():
+    uid = request.cookies.get("uid")
+    if not uid:
+        uid = str(uuid.uuid4())
+    return uid
+
 def load_pari(id):
-
     file = data_file(id)
-
     if not os.path.exists(file):
         return None
     with open(file, "r") as f:
         return json.load(f)
 
 def save_pari(id, data):
-    
     file = data_file(id)
-
     Path(file).parent.mkdir(parents=True, exist_ok=True)
-
     with open(file, "w") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    resp = make_response(render_template("index.html"))
+    uid = get_or_set_uid()
+    if "uid" not in request.cookies:
+        resp.set_cookie("uid", uid, max_age=60*60*24*365)  # 1 year
+    return resp
 
 @app.route("/api/create", methods=["POST"])
 def create_pari():
     data = request.json
     pari_id = str(uuid.uuid4())[:8]
-    pari = load_pari(pari_id)
     ip_a = get_ip()
+    uid_a = get_or_set_uid()
+
     pari = {
         "id": pari_id,
         "pari": data["pari"],
-        "max": None,           # défini par B
+        "max": None,
         "personne_a": data["personne_a"],
         "personne_b": data["personne_b"],
         "ip_a": ip_a,
+        "uid_a": uid_a,
         "ip_b": None,
+        "uid_b": None,
         "choix_a": None,
         "choix_b": None,
         "created_at": datetime.now().isoformat()
     }
     save_pari(pari_id, pari)
-    return jsonify({"id": pari_id})
+
+    resp = make_response(jsonify({"id": pari_id}))
+    resp.set_cookie("uid", uid_a, max_age=60*60*24*365)
+    return resp
 
 @app.route("/pari/<pari_id>")
 def pari(pari_id):
@@ -66,34 +76,41 @@ def pari(pari_id):
         return render_template("404.html"), 404
 
     ip = get_ip()
+    uid = get_or_set_uid()
 
-    # Enregistrer l'IP de B à sa première visite
-    if pari["ip_b"] is None and ip != pari["ip_a"]:
+    # Register person B if not yet registered
+    if pari["uid_b"] is None and uid != pari["uid_a"]:
         pari["ip_b"] = ip
+        pari["uid_b"] = uid
         save_pari(pari_id, pari)
 
-    if ip == pari["ip_a"]:
+    # Determine role based on UID
+    if uid == pari["uid_a"]:
         role = "a"
-    elif ip == pari["ip_b"]:
+    elif uid == pari["uid_b"]:
         role = "b"
     else:
         role = "spectator"
 
-    return render_template("pari.html", pari=pari, role=role)
+    resp = make_response(render_template("pari.html", pari=pari, role=role))
+    if "uid" not in request.cookies:
+        resp.set_cookie("uid", uid, max_age=60*60*24*365)
+    return resp
 
 @app.route("/api/pari/<pari_id>")
 def get_pari(pari_id):
     pari = load_pari(pari_id)
     if pari is None:
         return jsonify({"error": "not found"}), 404
-    
-    ip = get_ip()
-    if ip == pari["ip_a"]:
+
+    uid = get_or_set_uid()
+    if uid == pari["uid_a"]:
         role = "a"
-    elif ip == pari["ip_b"]:
+    elif uid == pari["uid_b"]:
         role = "b"
     else:
         role = "spectator"
+
     return jsonify({**pari, "role": role})
 
 @app.route("/api/pari/<pari_id>/setmax", methods=["POST"])
@@ -101,11 +118,10 @@ def set_max(pari_id):
     pari = load_pari(pari_id)
     if pari is None:
         return jsonify({"error": "not found"}), 404
-    
-    ip = get_ip()
 
-    # Seule la personne B peut définir le max
-    if ip != pari["ip_b"]:
+    uid = get_or_set_uid()
+
+    if uid != pari["uid_b"]:
         return jsonify({"error": "Seule la personne B peut définir le pour combien."}), 403
     if pari["max"] is not None:
         return jsonify({"error": "Le pour combien a déjà été défini."}), 400
@@ -127,15 +143,15 @@ def faire_choix(pari_id):
     pari = load_pari(pari_id)
     if pari is None:
         return jsonify({"error": "not found"}), 404
-    
-    ip = get_ip()
+
+    uid = get_or_set_uid()
 
     if pari["max"] is None:
         return jsonify({"error": "Le pour combien n'a pas encore été défini."}), 400
 
-    if ip == pari["ip_a"]:
+    if uid == pari["uid_a"]:
         personne = "a"
-    elif ip == pari["ip_b"]:
+    elif uid == pari["uid_b"]:
         personne = "b"
     else:
         return jsonify({"error": "Tu n'es pas autorisé à participer à ce pari."}), 403
