@@ -7,19 +7,30 @@ app = Flask(__name__)
 
 SAVE_FOLDER = os.getenv("PARIS_FOLDER", "paris")
 
+# Set to False in local dev if not using HTTPS
+SECURE_COOKIES = os.getenv("SECURE_COOKIES", "false").lower() != "false"
+
 def data_file(id):
     return str(Path(SAVE_FOLDER) / f"{id}.json")
 
-def get_ip():
-    if request.headers.get("X-Forwarded-For"):
-        return request.headers["X-Forwarded-For"].split(",")[0].strip()
-    return request.remote_addr
-
-def get_or_set_uid():
+def get_or_create_uid():
+    """Get existing UID from cookie, or generate a new one."""
     uid = request.cookies.get("uid")
     if not uid:
         uid = str(uuid.uuid4())
     return uid
+
+def set_uid_cookie(resp, uid):
+    """Attach a secure, long-lived UID cookie to a response."""
+    resp.set_cookie(
+        "uid",
+        uid,
+        max_age=60 * 60 * 24 * 365,  # 1 year
+        httponly=True,                 # Not accessible via JS
+        secure=SECURE_COOKIES,         # HTTPS only (required for SameSite=None)
+        samesite="None" if SECURE_COOKIES else "Lax",  # Cross-site for mobile
+    )
+    return resp
 
 def load_pari(id):
     file = data_file(id)
@@ -34,20 +45,25 @@ def save_pari(id, data):
     with open(file, "w") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+def get_role(pari, uid):
+    if uid == pari["uid_a"]:
+        return "a"
+    elif uid == pari["uid_b"]:
+        return "b"
+    return "spectator"
+
 @app.route("/")
 def index():
+    uid = get_or_create_uid()
     resp = make_response(render_template("index.html"))
-    uid = get_or_set_uid()
-    if "uid" not in request.cookies:
-        resp.set_cookie("uid", uid, max_age=60*60*24*365)  # 1 year
+    set_uid_cookie(resp, uid)
     return resp
 
 @app.route("/api/create", methods=["POST"])
 def create_pari():
     data = request.json
     pari_id = str(uuid.uuid4())[:8]
-    ip_a = get_ip()
-    uid_a = get_or_set_uid()
+    uid_a = get_or_create_uid()
 
     pari = {
         "id": pari_id,
@@ -55,9 +71,7 @@ def create_pari():
         "max": None,
         "personne_a": data["personne_a"],
         "personne_b": data["personne_b"],
-        "ip_a": ip_a,
         "uid_a": uid_a,
-        "ip_b": None,
         "uid_b": None,
         "choix_a": None,
         "choix_b": None,
@@ -66,7 +80,7 @@ def create_pari():
     save_pari(pari_id, pari)
 
     resp = make_response(jsonify({"id": pari_id}))
-    resp.set_cookie("uid", uid_a, max_age=60*60*24*365)
+    set_uid_cookie(resp, uid_a)
     return resp
 
 @app.route("/pari/<pari_id>")
@@ -75,26 +89,16 @@ def pari(pari_id):
     if pari is None:
         return render_template("404.html"), 404
 
-    ip = get_ip()
-    uid = get_or_set_uid()
+    uid = get_or_create_uid()
 
-    # Register person B if not yet registered
+    # Register person B on first visit (anyone who isn't A)
     if pari["uid_b"] is None and uid != pari["uid_a"]:
-        pari["ip_b"] = ip
         pari["uid_b"] = uid
         save_pari(pari_id, pari)
 
-    # Determine role based on UID
-    if uid == pari["uid_a"]:
-        role = "a"
-    elif uid == pari["uid_b"]:
-        role = "b"
-    else:
-        role = "spectator"
-
+    role = get_role(pari, uid)
     resp = make_response(render_template("pari.html", pari=pari, role=role))
-    if "uid" not in request.cookies:
-        resp.set_cookie("uid", uid, max_age=60*60*24*365)
+    set_uid_cookie(resp, uid)
     return resp
 
 @app.route("/api/pari/<pari_id>")
@@ -103,15 +107,14 @@ def get_pari(pari_id):
     if pari is None:
         return jsonify({"error": "not found"}), 404
 
-    uid = get_or_set_uid()
-    if uid == pari["uid_a"]:
-        role = "a"
-    elif uid == pari["uid_b"]:
-        role = "b"
-    else:
-        role = "spectator"
+    uid = get_or_create_uid()
+    role = get_role(pari, uid)
 
-    return jsonify({**pari, "role": role})
+    # Never expose UIDs to the client
+    safe_pari = {k: v for k, v in pari.items() if not k.startswith("uid_")}
+    resp = make_response(jsonify({**safe_pari, "role": role}))
+    set_uid_cookie(resp, uid)
+    return resp
 
 @app.route("/api/pari/<pari_id>/setmax", methods=["POST"])
 def set_max(pari_id):
@@ -119,7 +122,7 @@ def set_max(pari_id):
     if pari is None:
         return jsonify({"error": "not found"}), 404
 
-    uid = get_or_set_uid()
+    uid = get_or_create_uid()
 
     if uid != pari["uid_b"]:
         return jsonify({"error": "Seule la personne B peut définir le pour combien."}), 403
@@ -136,7 +139,11 @@ def set_max(pari_id):
 
     pari["max"] = max_val
     save_pari(pari_id, pari)
-    return jsonify({**pari, "role": "b"})
+
+    safe_pari = {k: v for k, v in pari.items() if not k.startswith("uid_")}
+    resp = make_response(jsonify({**safe_pari, "role": "b"}))
+    set_uid_cookie(resp, uid)
+    return resp
 
 @app.route("/api/pari/<pari_id>/choix", methods=["POST"])
 def faire_choix(pari_id):
@@ -144,16 +151,13 @@ def faire_choix(pari_id):
     if pari is None:
         return jsonify({"error": "not found"}), 404
 
-    uid = get_or_set_uid()
+    uid = get_or_create_uid()
 
     if pari["max"] is None:
         return jsonify({"error": "Le pour combien n'a pas encore été défini."}), 400
 
-    if uid == pari["uid_a"]:
-        personne = "a"
-    elif uid == pari["uid_b"]:
-        personne = "b"
-    else:
+    role = get_role(pari, uid)
+    if role == "spectator":
         return jsonify({"error": "Tu n'es pas autorisé à participer à ce pari."}), 403
 
     try:
@@ -164,7 +168,7 @@ def faire_choix(pari_id):
     if choix < 1 or choix > pari["max"]:
         return jsonify({"error": f"Le nombre doit être entre 1 et {pari['max']}."}), 400
 
-    if personne == "a":
+    if role == "a":
         if pari["choix_a"] is not None:
             return jsonify({"error": "Tu as déjà choisi !"}), 400
         pari["choix_a"] = choix
@@ -174,7 +178,11 @@ def faire_choix(pari_id):
         pari["choix_b"] = choix
 
     save_pari(pari_id, pari)
-    return jsonify({**pari, "role": personne})
+
+    safe_pari = {k: v for k, v in pari.items() if not k.startswith("uid_")}
+    resp = make_response(jsonify({**safe_pari, "role": role}))
+    set_uid_cookie(resp, uid)
+    return resp
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
