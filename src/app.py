@@ -48,7 +48,7 @@ def save_pari(id, data):
 def get_role(pari, uid):
     if uid == pari["uid_a"]:
         return "a"
-    elif uid == pari["uid_b"]:
+    elif pari["uid_b"] == None or uid == pari["uid_b"]:
         return "b"
     return "spectator"
 
