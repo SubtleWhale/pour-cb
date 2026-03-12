@@ -8,7 +8,7 @@ app = Flask(__name__)
 SAVE_FOLDER = os.getenv("PARIS_FOLDER", "paris")
 
 # Set to False in local dev if not using HTTPS
-SECURE_COOKIES = os.getenv("SECURE_COOKIES", "false").lower() != "false"
+SECURE_COOKIES = os.getenv("SECURE_COOKIES", "true").lower() != "false"
 
 def data_file(id):
     return str(Path(SAVE_FOLDER) / f"{id}.json")
@@ -91,11 +91,6 @@ def pari(pari_id):
 
     uid = get_or_create_uid()
 
-    # Register person B on first visit (anyone who isn't A)
-    if pari["uid_b"] is None and uid != pari["uid_a"]:
-        pari["uid_b"] = uid
-        save_pari(pari_id, pari)
-
     role = get_role(pari, uid)
     resp = make_response(render_template("pari.html", pari=pari, role=role))
     set_uid_cookie(resp, uid)
@@ -123,6 +118,9 @@ def set_max(pari_id):
         return jsonify({"error": "not found"}), 404
 
     uid = get_or_create_uid()
+
+    if pari["uid_b"] is None and uid != pari["uid_a"]:
+        pari["uid_b"] = uid
 
     if uid != pari["uid_b"]:
         return jsonify({"error": "Seule la personne B peut définir le pour combien."}), 403
